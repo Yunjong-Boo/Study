@@ -6,7 +6,7 @@
 #include <pthread.h>
 #include <time.h>
 
-#define BLOCK_SHORT_SIDE 100
+#define BLOCK_SHORT_SIDE 1000
 
 typedef struct _MatrixInfo{
 	int rows;
@@ -68,46 +68,18 @@ void BlockMultiply(Parameter *arg, int A_block_row, int B_block_col){
 	int A_row , B_col, temp;
 	A_row = A_block_row*BLOCK_SHORT_SIDE;
 	B_col = B_block_col*BLOCK_SHORT_SIDE;
-//printf("A_row: %d\t B_col: %d\t common: %d\n", A_row, B_col, arg->common);
-//printf("==================before==================\n");
-//PrintMatrix(&(arg->result_Info), arg->result_Mat);
-//printf("k\t i\t j\n");
 	for(int k = 0; k < arg->common; k++){
 		for(int i = A_row; i < A_row+BLOCK_SHORT_SIDE; i++){
 			temp = arg->A_Mat[i][k];
 			for(int j = B_col; j < B_col+BLOCK_SHORT_SIDE; j++){
 				arg->result_Mat[i][j] += temp * arg->B_Mat[k][j];
-//				printf("%d\t %d\t %d\n", k, i, j);
 			}
-//			if(common_idx == arg->common)
 		}
 	}
-//printf("===================after=================\n");
-//PrintMatrix(&(arg->result_Info), arg->result_Mat);
-//PrintMatrix(&(arg->result_Info), arg->result_Mat);
-//printf("\n");
-	/*
-	for(int i = A_row; i < A_row+BLOCK_SHORT_SIDE; i++){
-		for(int j = B_col; j < B_col+BLOCK_SHORT_SIDE; j++){
-			sum = 0;
-			for(int k = 0; k < arg->common; k++){
-				sum += arg->A_Mat[i][k] * arg->B_Mat[k][j];
-			}
-			arg->result_Mat[i][j] = sum;
-		}
-	}
-	*/
 }
 
 void *MatrixMultiply(void *arg){
 	Parameter *thr_arg = (Parameter*)arg;
-	/*
-	for(int i = 0; i < (thr_arg->result_Info.rows/BLOCK_SHORT_SIDE); i++){
-		for(int j = 0; j < (thr_arg->result_Info.columns/BLOCK_SHORT_SIDE); j++){
-			BlockMultiply(thr_arg, i, j);
-		}
-	}
-	*/
 	for(int i = 0; i < (thr_arg->result_Info.columns/BLOCK_SHORT_SIDE); i++){
 		BlockMultiply(thr_arg, thr_arg->block_row, i);
 	}
@@ -184,7 +156,7 @@ int main(int argc, char **argv){
 	printf("Multi-Threading excution time: %f\n", excute_time);
 
 	/* write the multiply result to file */
-	FILE *res_file = fopen("Result_Modify", "w");
+	FILE *res_file = fopen("Result_Block", "w");
 	if(res_file == NULL){
 		printf("Result_Modify fopen failed!\n");
 		exit(1);
