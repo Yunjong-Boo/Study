@@ -6,8 +6,8 @@
 #include <pthread.h>
 #include <time.h>
 
-#define TILE_SIZE 500
-//pthread_mutex_t mutex_lock = PTHREAD_MUTEX_INITIALIZER;
+#define TILE_SIZE 1000
+pthread_mutex_t mutex_lock = PTHREAD_MUTEX_INITIALIZER;
 
 typedef struct _MatrixInfo{
 	int rows;
@@ -65,18 +65,30 @@ int **ReadMatrix(char *file_name, MatrixInfo *info){
 	return mat;
 }
 
-void BlockMultiply(int **A_Mat, int **B_Mat, int **result_Mat, int A_row, int A_col, int B_col){
-//printf("A_row: %d\t B_col: %d\t common: %d\n", A_row, B_col, arg->common);
+void BlockMultiply(Parameter *arg, int **res_temp, int A_row, int A_col, int B_col){
 //printf("==================before==================\n");
 //PrintMatrix(&(arg->result_Info), arg->result_Mat);
+	/* Input computation value to res_temp array */
 	int temp;
 	for(int k = A_col; k < A_col+TILE_SIZE; k++){
 		for(int i = A_row; i < A_row+TILE_SIZE; i++){
-			temp = A_Mat[i][k];
+			temp = arg->A_Mat[i][k];
 			for(int j = B_col; j < B_col+TILE_SIZE; j++){
-				result_Mat[i][j] += temp * B_Mat[k][j];
+				res_temp[i-A_row][j-B_col] += temp * arg->B_Mat[k][j];
 			}
 		}
+	}
+	
+	/* Setting Mutex to prevent result_Mat's value colision */
+	for(int i = 0; i < TILE_SIZE; i++){
+		pthread_mutex_lock(&mutex_lock);
+		for(int j = 0; j < TILE_SIZE; j++){
+//			pthread_mutex_lock(&mutex_lock);
+			arg->result_Mat[i+A_row][j+B_col] += res_temp[i][j];
+			res_temp[i][j] = 0;
+//			pthread_mutex_unlock(&mutex_lock);
+		}
+		pthread_mutex_unlock(&mutex_lock);
 	}
 //printf("===================after=================\n");
 //PrintMatrix(&(arg->result_Info), arg->result_Mat);
@@ -84,39 +96,30 @@ void BlockMultiply(int **A_Mat, int **B_Mat, int **result_Mat, int A_row, int A_
 
 void *MatrixMultiply(void *arg){
 	Parameter *thr_arg = (Parameter*)arg;
-	/*
-	int sub_row, sub_col;
-	sub_row = thr_arg->row_idx*TILE_SIZE;
-	sub_col = thr_arg->col_idx*TILE_SIZE;
-	int **A_sub = malloc(sizeof(int*)*TILE_SIZE);
+	
+	/* prevent result_matrix value's colision */
+	int **res_temp = (int**)malloc(sizeof(int*)*TILE_SIZE);
 	for(int i = 0; i < TILE_SIZE; i++){
-		A_sub[i] = malloc(sizeof(int)*TILE_SIZE);
-printf("=================================================\n");
+		res_temp[i] = (int*)malloc(sizeof(int)*TILE_SIZE);
 		for(int j = 0; j < TILE_SIZE; j++){
-			A_sub[i][j] = thr_arg->A_Mat[sub_row+i][sub_col+j];
-			printf(" %d ", A_sub[i][j]);
+			res_temp[i][j] = 0;
 		}
-		printf("\n");
 	}
-	*/
-//	pthread_mutex_lock(&mutex_lock);
-//printf("row: %d, col: %d\n", thr_arg->row_idx, thr_arg->col_idx);
+
+	/* Compute Tile-Matrix according each Tile's row/col */
 	int A_row, A_col, B_col;
 	A_row = thr_arg->row_idx*TILE_SIZE;
 	A_col = thr_arg->col_idx*TILE_SIZE;
 	for(int i = 0; i < (thr_arg->result_Info.columns/TILE_SIZE); i++){
 		B_col = i*TILE_SIZE;
-		BlockMultiply(thr_arg->A_Mat, thr_arg->B_Mat, 
-				thr_arg->result_Mat, A_row, A_col, B_col);
+		BlockMultiply(thr_arg, res_temp, A_row, A_col, B_col);
 	}
-//	pthread_mutex_unlock(&mutex_lock);
-
-	/* free A_sub 
+	
+	/* free res_temp */
 	for(int i = 0; i < TILE_SIZE; i++){
-		free(A_sub[i]);
+		free(res_temp[i]);
 	}
-	free(A_sub);
-	*/
+	free(res_temp);
 
 	return NULL;
 }
