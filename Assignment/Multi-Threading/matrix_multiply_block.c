@@ -6,7 +6,7 @@
 #include <pthread.h>
 #include <time.h>
 
-#define BLOCK_SHORT_SIDE 1000
+#define Nthread 6
 
 typedef struct _MatrixInfo{
 	int rows;
@@ -15,7 +15,8 @@ typedef struct _MatrixInfo{
 
 typedef struct _ThreadParameter{
 	int **A_Mat, **B_Mat, **result_Mat;
-	int common, block_row;
+	int *A_row, *B_col;
+	int common, tid;
 	MatrixInfo result_Info;
 } Parameter;
 
@@ -64,14 +65,14 @@ int **ReadMatrix(char *file_name, MatrixInfo *info){
 	return mat;
 }
 
-void BlockMultiply(Parameter *arg, int A_block_row, int B_block_col){
-	int A_row , B_col, temp;
-	A_row = A_block_row*BLOCK_SHORT_SIDE;
-	B_col = B_block_col*BLOCK_SHORT_SIDE;
+void BlockMultiply(Parameter *arg, int tid, int col_idx){
+	int temp;
+	int row_start = tid*arg->A_row[0];
+	int col_start = col_idx*arg->B_col[0];
 	for(int k = 0; k < arg->common; k++){
-		for(int i = A_row; i < A_row+BLOCK_SHORT_SIDE; i++){
+		for(int i = row_start; i < row_start+arg->A_row[tid]; i++){
 			temp = arg->A_Mat[i][k];
-			for(int j = B_col; j < B_col+BLOCK_SHORT_SIDE; j++){
+			for(int j = col_start; j < col_start+arg->B_col[col_idx]; j++){
 				arg->result_Mat[i][j] += temp * arg->B_Mat[k][j];
 			}
 		}
@@ -80,8 +81,8 @@ void BlockMultiply(Parameter *arg, int A_block_row, int B_block_col){
 
 void *MatrixMultiply(void *arg){
 	Parameter *thr_arg = (Parameter*)arg;
-	for(int i = 0; i < (thr_arg->result_Info.columns/BLOCK_SHORT_SIDE); i++){
-		BlockMultiply(thr_arg, thr_arg->block_row, i);
+	for(int i = 0; i < Nthread; i++){
+		BlockMultiply(thr_arg, thr_arg->tid, i);
 	}
 
 	return NULL;
@@ -122,8 +123,39 @@ int main(int argc, char **argv){
 	double excute_time = 0;
 
 	/* make multi-thread */
-	int Nthread;
-	Nthread = A_Info.rows/BLOCK_SHORT_SIDE;
+//	int Nthread;
+//	Nthread = A_Info.rows/BLOCK_SHORT_SIDE;
+	
+	int tile_row[Nthread], tile_col[Nthread];
+	// setting tile_row[] //
+	if(result_Info.rows % Nthread == 0){
+		for(int i = 0; i < Nthread; i++){
+			tile_row[i] = result_Info.rows/Nthread;
+		}
+	}
+	else{
+		int rest = result_Info.rows;
+		for(int i = 0; i < Nthread-1; i++){
+			tile_row[i] = result_Info.rows/Nthread;
+			rest -= tile_row[i];
+		}
+		tile_row[Nthread-1] = rest;
+	}
+	// setting tile_col[] //
+	if(result_Info.columns % Nthread == 0){
+		for(int i = 0; i < Nthread; i++){
+			tile_col[i] = result_Info.columns/Nthread;
+		}
+	}
+	else{
+		int rest = result_Info.columns;
+		for(int i = 0; i < Nthread-1; i++){
+			tile_col[i] = result_Info.columns/Nthread;
+			rest -= tile_col[i];
+		}
+		tile_col[Nthread-1] = rest;
+	}
+
 	pthread_t *multi_thread = (pthread_t*)malloc(sizeof(pthread_t)*Nthread);
 	Parameter *parameter = (Parameter*)malloc(sizeof(Parameter)*Nthread);
 
@@ -135,7 +167,9 @@ int main(int argc, char **argv){
 		parameter[i].result_Mat = result_Mat;
 		parameter[i].result_Info = result_Info;
 		parameter[i].common = A_Info.columns;
-		parameter[i].block_row = i;
+		parameter[i].A_row = tile_row;
+		parameter[i].B_col = tile_col;
+		parameter[i].tid = i;
 		if((rc = pthread_create(&(multi_thread[i]), NULL, 
 						MatrixMultiply, (void*)(parameter+i))) != 0){
 			perror("Thread create error");
