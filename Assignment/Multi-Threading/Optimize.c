@@ -8,16 +8,23 @@
 
 #define STANDARD_SIZE 256 	//Change according to L1 Cache Memory Size
 #define Nthread 12	//Change according to number of CPU core
+pthread_mutex_t mutex_lock = PTHREAD_MUTEX_INITIALIZER;
 
 typedef struct _MatrixInfo{
 	int rows;
 	int columns;
 } MatrixInfo;
 
+typedef struct _TileInfo{
+	int Ntile;
+	int size, rows, columns, common;
+} TileInfo;
+
 typedef struct _ThreadParameter{
 	int tid, num_tile;
-	int *A_Mat, *B_Mat, *res_Mat;
+	int **A_Mat, **B_Mat, **res_Mat;
 	MatrixInfo res_Info;
+	TileInfo tile_Info;
 //A_Info, B_Info;
 } Parameter;
 
@@ -69,7 +76,6 @@ int **ReadMatrix(char *file_name, MatrixInfo *info){
 }
 
 int ModifyGCD(int rows, int columns){
-printf("in ModifyGCD\n");
 	int ret = 0, temp;
 	for(int i = 1; i<= rows && i<= columns; i++){
 		if((rows%i == 0) && (columns%i == 0)){
@@ -84,8 +90,81 @@ printf("in ModifyGCD\n");
 	return ret;
 }
 
-void *ThreadFunc(void *arg){
-	Parameter thr_arg = (*Parameter)arg;
+void MatrixMultiply(Parameter *arg, int *sub, int A_row_idx, int B_row_idx, int B_col_idx, int *res_temp){
+printf("in MatrixMultiply\n");
+	int *B_sub = (int*)malloc(sizeof(int)*(arg->tile_Info.size*arg->tile_Info.size));
+	for(int i = 0; i < arg->tile_Info.size; i++){
+		for(int j = 0; j < arg->tile_Info.size; j++){
+			B_sub[i*arg->tile_Info.size+j] = arg->B_Mat[B_row_idx+i][B_col_idx+j];
+		}
+	}
+
+	int temp;
+	for(int i = 0; i < arg->tile_Info.size; i++){
+		for(int j = 0; j < arg->tile_Info.size; j++){
+			temp = sub[(i*arg->tile_Info.size)+j];
+			for(int k = 0; k < arg->tile_Info.size; k++){
+				res_temp[(i*arg->tile_Info.size)+j] += 
+					temp * B_sub[(j*arg->tile_Info.size)+k];
+			}
+		}
+	}
+
+	/* Using mutex to prevent resul_Mat's value colision */
+	for(int i = 0; i < arg->tile_Info.size; i++){
+		pthread_mutex_lock(&mutex_lock);
+		for(int j = 0; j < arg->tile_Info.size; j++){
+			arg->res_Mat[A_row_idx+i][B_col_idx+j] += 
+					res_temp[i*arg->tile_Info.size+j];
+			res_temp[i*arg->tile_Info.size+j] = 0;
+		}
+		pthread_mutex_unlock(&mutex_lock);
+	}
+
+	free(B_sub);
+}
+
+void *ThreadFunc(void *thr_par){
+	pthread_mutex_lock(&mutex_lock);
+	Parameter *arg = (Parameter*)thr_par;
+
+printf("tid: %d, threadID: %lu\n", arg->tid, pthread_self());
+
+	/* Setting */
+	int start = arg->tid*arg->num_tile;
+	int *A_sub = (int*)malloc(sizeof(int)*(arg->tile_Info.size*arg->tile_Info.size));
+	int *res_temp = (int*)malloc(sizeof(int)*(arg->tile_Info.size*arg->tile_Info.size));
+
+printf("chcek tid: %d, threadId: %lu\n", arg->tid, pthread_self());
+
+	/* Calculate that one tile to do */
+	for(int i = start; i < start+arg->num_tile; i++){
+		int row_idx = i/arg->tile_Info.rows;
+		int col_idx = i%arg->tile_Info.common;
+printf("before A_sub malloc, threadID: %lu\n", pthread_self());
+		/* Allocating A_Matrix's sub matrix */
+		for(int j = 0; j < arg->tile_Info.size; j++){
+			pthread_mutex_lock(&mutex_lock);
+			for(int k = 0; k < arg->tile_Info.size; k++){
+				A_sub[j*arg->tile_Info.size+k] = 
+					arg->A_Mat[row_idx*arg->tile_Info.size+j]
+							[col_idx*arg->tile_Info.size+k];
+			}
+			pthread_mutex_unlock(&mutex_lock);
+		}
+printf("finish malloc A_sub\n");
+		for(int j = 0 ; j < arg->tile_Info.columns; j++){
+			int A_row_idx = row_idx*arg->tile_Info.size;
+			int B_row_idx = col_idx*arg->tile_Info.size;
+			int B_col_idx = j*arg->tile_Info.size;
+			MatrixMultiply(arg, A_sub, A_row_idx, B_row_idx, B_col_idx, res_temp);
+		}
+	}
+
+	free(A_sub);
+	free(res_temp);
+	pthread_mutex_unlock(&mutex_lock);
+	return NULL;
 }
 
 int main(int argc, char **argv){
@@ -120,23 +199,24 @@ int main(int argc, char **argv){
 	double excution_time = 0;
 
 	/* Preparation process to divide Matrix into Tiles */
-	int tile_row, tile_col, tile_size;
-	tile_size = ModifyGCD(res_Info.rows, res_Info.columns);
-	tile_row = res_Info.rows/tile_size;
-	tile_col = res_Info.columns/tile_size;
+	TileInfo tile_info;
+	tile_info.size = ModifyGCD(res_Info.rows, res_Info.columns);
+	tile_info.rows = res_Info.rows/tile_info.size;
+	tile_info.columns = res_Info.columns/tile_info.size;
+	tile_info.common = A_Info.columns/tile_info.size;
 
 	/* Setting number of tiles for each thread */
-	int Ntile = tile_row*tile_col;
+	tile_info.Ntile = tile_info.rows*tile_info.columns;
 	int alloc_tile[Nthread];
-	if((Ntile % Nthread) == 0){
+	if((tile_info.Ntile % Nthread) == 0){
 		for(int i = 0; i < Nthread; i++){
-			alloc_tile[i] = Ntile/Nthread;
+			alloc_tile[i] = tile_info.Ntile/Nthread;
 		}
 	}
 	else{
-		int rest = Ntile;
+		int rest = tile_info.Ntile;
 		for(int i = 0; i < Nthread-1; i++){
-			alloc_tile[i] = Ntile/Nthread;
+			alloc_tile[i] = tile_info.Ntile/Nthread;
 			rest -= alloc_tile[i];
 		}
 		alloc_tile[Nthread-1] = rest;
@@ -144,19 +224,20 @@ int main(int argc, char **argv){
 
 	/* Create multi-thread */
 	pthread_t *multi_thread = (pthread_t*)malloc(sizeof(pthread_t)*Nthread);
-	Parameter *thr_par;
+	Parameter *thr_par = (Parameter*)malloc(sizeof(Parameter)*Nthread);
 	clock_gettime(CLOCK_MONOTONIC, &start);
 	for(int i = 0; i < Nthread; i++){
 		int rc;
-		thr_par.tid = i;
-		thr_par.num_tile = alloc_tile[i];
-		thr_par.A_Mat = A_Mat;
-		thr_par.B_Mat = B_Mat;
-		thr_par.res_Mat = res_Mat;
-		thr_par.res_Info = res_Info;
+		thr_par[i].tid = i;
+		thr_par[i].tile_Info = tile_info;
+		thr_par[i].num_tile = alloc_tile[i];	//number of tiles to be handled in thread
+		thr_par[i].A_Mat = A_Mat;
+		thr_par[i].B_Mat = B_Mat;
+		thr_par[i].res_Mat = res_Mat;
+		thr_par[i].res_Info = res_Info;
 
-		if((rc = pthread_create(&(multi_thread), NULL, 
-						ThreadFunc, (void*)thr_par)) != 0){
+		if((rc = pthread_create(&(multi_thread[i]), NULL, 
+						ThreadFunc, (void*)(thr_par+i))) != 0){
 			perror("Multi Thread Create Error!");
 		}
 	}
@@ -169,6 +250,8 @@ int main(int argc, char **argv){
 			perror("Multi Thread Join Failed!");
 		}
 	}
+
+	/* Print excution_time */
 	clock_gettime(CLOCK_MONOTONIC, &end);
 	excution_time = end.tv_sec - start.tv_sec;
 	printf("Multi-Threading Excution Time: %f\n", excution_time);
