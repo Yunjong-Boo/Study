@@ -25,7 +25,6 @@ typedef struct _ThreadParameter{
 	int **A_Mat, **B_Mat, **res_Mat;
 	MatrixInfo res_Info;
 	TileInfo tile_Info;
-//A_Info, B_Info;
 } Parameter;
 
 void PrintMatrix(int **mat, MatrixInfo *info){
@@ -76,6 +75,7 @@ int **ReadMatrix(char *file_name, MatrixInfo *info){
 }
 
 int ModifyGCD(int rows, int columns){
+	/* Find the value to close STANDARD_SIZE considering each Matrix's size*/
 	int ret = 0, temp;
 	for(int i = 1; i<= rows && i<= columns; i++){
 		if((rows%i == 0) && (columns%i == 0)){
@@ -91,16 +91,15 @@ int ModifyGCD(int rows, int columns){
 }
 
 void MatrixMultiply(Parameter *arg, int *A_sub, int A_row_idx, int common_idx, int B_col_idx, int *res_temp){
-//printf("in MatrixMultiply\n");
-
+	/* Allocating B_Mat's sub matrix */
 	int *B_sub = (int*)malloc(sizeof(int)*(arg->tile_Info.size*arg->tile_Info.size));
 	for(int i = 0; i < arg->tile_Info.size; i++){
 		for(int j = 0; j < arg->tile_Info.size; j++){
 			B_sub[i*arg->tile_Info.size+j] = arg->B_Mat[common_idx+i][B_col_idx+j];
 		}
 	}
-//printf("finish B_sub\n");
 
+	/* Matrix multiplication at each element */
 	int temp;
 	for(int k = 0; k < arg->tile_Info.size; k++){
 		for(int i = 0; i < arg->tile_Info.size; i++){
@@ -123,6 +122,7 @@ void MatrixMultiply(Parameter *arg, int *A_sub, int A_row_idx, int common_idx, i
 		pthread_mutex_unlock(&mutex_lock);
 	}
 
+	/* free allocated memory */
 	free(B_sub);
 }
 
@@ -144,13 +144,14 @@ void *ThreadFunc(void *thr_par){
 						arg->A_Mat[A_row_idx+j][common_idx+k];
 			}
 		}
-
+		/* Do MatrixMultiply */
 		for(int j = 0 ; j < arg->tile_Info.columns; j++){
 			int B_col_idx = j*arg->tile_Info.size;
 			MatrixMultiply(arg, A_sub, A_row_idx, common_idx, B_col_idx, res_temp);
 		}
 	}
 
+	/* free allocated memory */
 	free(A_sub);
 	free(res_temp);
 	return NULL;
@@ -190,13 +191,9 @@ int main(int argc, char **argv){
 	/* Preparation process to divide Matrix into Tiles */
 	TileInfo tile_info;
 	tile_info.size = ModifyGCD(res_Info.rows, res_Info.columns);
-//printf("ModifyGCD: %d\n", tile_info.size);
-//printf("res_Info rows: %d, res_Info cols: %d\n", res_Info.rows, res_Info.columns);
 	tile_info.rows = res_Info.rows/tile_info.size;
 	tile_info.columns = res_Info.columns/tile_info.size;
 	tile_info.common = A_Info.columns/tile_info.size;
-//printf("tile_info rows: %d, tile_info col: %d, tile_info common: %d\n",
-				tile_info.rows, tile_info.columns, tile_info.common);
 
 	/* Setting number of tiles for each thread */
 	tile_info.Ntile = tile_info.rows*tile_info.columns;
