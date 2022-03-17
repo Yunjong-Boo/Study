@@ -6,7 +6,7 @@
 #include <pthread.h>
 #include <time.h>
 
-#define Nthread 6
+#define Nthread 16
 
 typedef struct _MatrixInfo{
 	int rows;
@@ -155,6 +155,12 @@ int main(int argc, char **argv){
 		}
 		tile_col[Nthread-1] = rest;
 	}
+
+printf("Nthread: %d\n", Nthread);
+printf("==============Block ShortSide=============\n");
+for(int i = 0; i < Nthread; i++){
+	printf("ShortSide size: %d\n", tile_row[i]);
+}
 
 	pthread_t *multi_thread = (pthread_t*)malloc(sizeof(pthread_t)*Nthread);
 	Parameter *parameter = (Parameter*)malloc(sizeof(Parameter)*Nthread);

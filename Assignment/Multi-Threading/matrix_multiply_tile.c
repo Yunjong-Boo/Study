@@ -165,6 +165,8 @@ int main(int argc, char **argv){
 	Nthread = tile_row*tile_col;
 	pthread_t *multi_thread = (pthread_t*)malloc(sizeof(pthread_t)*Nthread);
 	Parameter *parameter = (Parameter*)malloc(sizeof(Parameter)*Nthread);
+printf("tile size: %d\n", TILE_SIZE);
+printf("Nthread: %d\n", Nthread);
 
 	clock_gettime(CLOCK_MONOTONIC, &start);
 	for(int i = 0; i < Nthread; i++){

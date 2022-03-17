@@ -6,7 +6,7 @@
 #include <pthread.h>
 #include <time.h>
 
-#define STANDARD_SIZE 90	//Change according to L1 Cache Memory Size
+#define STANDARD_SIZE 500	//Change according to L1 Cache Memory Size
 #define Nthread 16		//Change according to number of CPU core
 pthread_mutex_t mutex_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -288,9 +288,9 @@ printf("Nthread: %d\n", Nthread);
 	printf("Multi-Threading Excution Time: %f\n", excution_time);
 
 	/* Write result-matrix to file */
-	FILE *res_file = fopen("Result_Queue", "w");
+	FILE *res_file = fopen("Result_BQueue", "w");
 	if(res_file == NULL){
-		printf("Result file fopen failed!\n");
+		printf("Result_BQueue file fopen failed!\n");
 		exit(1);
 	}
 	for(int i = 0; i < res_Info.rows; i++){
