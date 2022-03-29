@@ -18,9 +18,6 @@ int main(int argc, char *argv[]){
 	int page_size = getpagesize();
 	int jump = page_size/sizeof(int);
 	int *arr = (int*)malloc(sizeof(int)*(num_pages*page_size));
-	for(int i = 0; i < num_pages*page_size; i++){
-		arr[i] = 0;
-	}
 
 	/* Access page & Time measurement */
 	struct timespec start, end;
