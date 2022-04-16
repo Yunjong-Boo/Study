@@ -73,7 +73,7 @@ public class AstCall{
 		Call(node.left, cnt);
 		for(int i = 0; i < cnt; i++)	System.out.print("\t");
 		Call(node.right, cnt);
-	};
+	}
 	
 	public static void Call(powNode node, int cnt){
 		cnt++;
@@ -82,7 +82,7 @@ public class AstCall{
 		Call(node.left, cnt);
 		for(int i = 0; i < cnt; i++)	System.out.print("\t");
 		Call(node.right, cnt);
-	};
+	}
 
 	public static void Call(sqrtNode node, int cnt){
 		cnt++;
