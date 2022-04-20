@@ -6,8 +6,8 @@
 #include <pthread.h>
 #include <time.h>
 
-#define STANDARD_SIZE 90	//Change according to L1 Cache Memory Size
-#define Nthread 16		//Change according to number of CPU core
+//#define STANDARD_SIZE 256	//Change according to L1 Cache Memory Size
+#define Nthread 32		//Change according to number of CPU core
 pthread_mutex_t mutex_lock = PTHREAD_MUTEX_INITIALIZER;
 
 typedef struct _Node{
@@ -76,7 +76,7 @@ int **ReadMatrix(char *file_name, MatrixInfo *info){
 	int temp;
 	for(int i = 0; i < info->rows; i++){
 		for(int j = 0; j < info->columns; j++){
-			fscanf(fp, "%d", &temp);
+			if(fscanf(fp, "%d", &temp));
 			mat[i][j] = temp;
 		}
 	}
@@ -85,7 +85,7 @@ int **ReadMatrix(char *file_name, MatrixInfo *info){
 	return mat;
 }
 
-int ModifyGCD(int rows, int columns){
+int ModifyGCD(int rows, int columns, int STANDARD_SIZE){
 	int ret = 0, temp;
 	for(int i = 1; i<= rows && i<= columns; i++){
 		if((rows%i == 0) && (columns%i == 0)){
@@ -210,8 +210,8 @@ void *ThreadFunc(void *thr_par){
 
 int main(int argc, char **argv){
 	/* Checking Excution Format */
-	if(argc != 3){
-		printf("Excution Format is [Excution File] [Matrix_A File] [Matrix_B File]\n");
+	if(argc != 4){
+		printf("Excution Format is [Excution File] [Matrix_A File] [Matrix_B File] [STANDARD_SIZE]\n");
 		exit(1);
 	}
 
@@ -219,6 +219,7 @@ int main(int argc, char **argv){
 	MatrixInfo A_Info, B_Info;
 	int **A_Mat = ReadMatrix(argv[1], &A_Info);
 	int **B_Mat = ReadMatrix(argv[2], &B_Info);
+	int STANDARD_SIZE = atoi(argv[3]);
 
 	/* Check operation is possible */
 	if(A_Info.columns != B_Info.rows){
@@ -241,7 +242,7 @@ int main(int argc, char **argv){
 
 	/* Preparation process to divide Matrix into Tiles */
 	TileInfo tile_Info;
-	tile_Info.size = ModifyGCD(res_Info.rows, res_Info.columns);
+	tile_Info.size = ModifyGCD(res_Info.rows, res_Info.columns, STANDARD_SIZE);
 	tile_Info.rows = res_Info.rows/tile_Info.size;
 	tile_Info.columns = res_Info.columns/tile_Info.size;
 	tile_Info.common = A_Info.columns/tile_Info.size;
@@ -288,9 +289,9 @@ printf("Nthread: %d\n", Nthread);
 	printf("Multi-Threading Excution Time: %f\n", excution_time);
 
 	/* Write result-matrix to file */
-	FILE *res_file = fopen("Result_Queue", "w");
+	FILE *res_file = fopen("Result_BQueue", "w");
 	if(res_file == NULL){
-		printf("Result file fopen failed!\n");
+		printf("Result_BQueue file fopen failed!\n");
 		exit(1);
 	}
 	for(int i = 0; i < res_Info.rows; i++){

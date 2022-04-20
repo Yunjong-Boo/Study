@@ -6,9 +6,20 @@
 #include <pthread.h>
 #include <time.h>
 
-#define STANDARD_SIZE 256 	//Change according to L1 Cache Memory Size
-#define Nthread 12	//Change according to number of CPU core
+#define STANDARD_SIZE 2048	//Change according to L1 Cache Memory Size
+#define Nthread 32		//Change according to number of CPU core
 pthread_mutex_t mutex_lock = PTHREAD_MUTEX_INITIALIZER;
+
+typedef struct _Node{
+	struct _Node *next;
+	int tile_id;
+} Node;
+
+typedef struct _Queue{
+	Node *front;
+	Node *rear;
+	int size;
+} Queue;
 
 typedef struct _MatrixInfo{
 	int rows;
@@ -21,10 +32,10 @@ typedef struct _TileInfo{
 } TileInfo;
 
 typedef struct _ThreadParameter{
-	int tid, start, num_tile;
 	int **A_Mat, **B_Mat, **res_Mat;
 	MatrixInfo res_Info;
 	TileInfo tile_Info;
+	Queue *queue;
 } Parameter;
 
 void PrintMatrix(int **mat, MatrixInfo *info){
@@ -65,7 +76,7 @@ int **ReadMatrix(char *file_name, MatrixInfo *info){
 	int temp;
 	for(int i = 0; i < info->rows; i++){
 		for(int j = 0; j < info->columns; j++){
-			fscanf(fp, "%d", &temp);
+			if(fscanf(fp, "%d", &temp));
 			mat[i][j] = temp;
 		}
 	}
@@ -74,9 +85,7 @@ int **ReadMatrix(char *file_name, MatrixInfo *info){
 	return mat;
 }
 
-/*
 int ModifyGCD(int rows, int columns){
-	// Find the value to close STANDARD_SIZE considering each Matrix's size //
 	int ret = 0, temp;
 	for(int i = 1; i<= rows && i<= columns; i++){
 		if((rows%i == 0) && (columns%i == 0)){
@@ -90,10 +99,43 @@ int ModifyGCD(int rows, int columns){
 
 	return ret;
 }
-*/
+
+void initQueue(Queue *queue){
+	queue->front = queue->rear = NULL;
+	queue->size = 0;
+}
+
+void enqueue(Queue *queue, int idx){
+	Node *newNode = (Node*)malloc(sizeof(Node));
+	newNode->tile_id = idx;
+	newNode->next = NULL;
+
+	/* if queue is empty */
+	if(queue->size == 0)	queue->front = newNode;
+	/* if queue is not empty */
+	else	queue->rear->next = newNode;
+	queue->rear = newNode;
+	queue->size++;
+}
+
+int dequeue(Queue *queue){
+	/* Check queue is empty */
+	if(queue->size == 0){
+		printf("in dequeue func queue is empty!\n");
+		exit(1);
+	}
+
+	Node *temp = queue->front;
+	int ret = temp->tile_id;
+	queue->front = temp->next;
+	queue->size--;
+	free(temp);
+
+	return ret;
+}
 
 void MatrixMultiply(Parameter *arg, int *A_sub, int A_row_idx, int common_idx, int B_col_idx, int *res_temp){
-	/* Allocating B_Mat's sub matrix */
+
 	int *B_sub = (int*)malloc(sizeof(int)*(arg->tile_Info.size*arg->tile_Info.size));
 	for(int i = 0; i < arg->tile_Info.size; i++){
 		for(int j = 0; j < arg->tile_Info.size; j++){
@@ -101,7 +143,6 @@ void MatrixMultiply(Parameter *arg, int *A_sub, int A_row_idx, int common_idx, i
 		}
 	}
 
-	/* Matrix multiplication at each element */
 	int temp;
 	for(int k = 0; k < arg->tile_Info.size; k++){
 		for(int i = 0; i < arg->tile_Info.size; i++){
@@ -124,7 +165,6 @@ void MatrixMultiply(Parameter *arg, int *A_sub, int A_row_idx, int common_idx, i
 		pthread_mutex_unlock(&mutex_lock);
 	}
 
-	/* free allocated memory */
 	free(B_sub);
 }
 
@@ -134,28 +174,37 @@ void *ThreadFunc(void *thr_par){
 	/* Setting */
 	int *A_sub = (int*)malloc(sizeof(int)*(arg->tile_Info.size*arg->tile_Info.size));
 	int *res_temp = (int*)malloc(sizeof(int)*(arg->tile_Info.size*arg->tile_Info.size));
+	int tile_idx;
 
-	/* Calculate that one tile to do */
-	for(int i = arg->start; i < arg->start+arg->num_tile; i++){
-		int A_row_idx = (i/arg->tile_Info.common)*arg->tile_Info.size;
-		int common_idx = (i%arg->tile_Info.common)*arg->tile_Info.size;
+	while(1){
+		pthread_mutex_lock(&mutex_lock);
+		if(arg->queue->size == 0)	break;
+		tile_idx = dequeue(arg->queue);
+		pthread_mutex_unlock(&mutex_lock);
+
+//printf("check enqueue is success: %d\n", tile_idx);
+
+		int A_row_idx = (tile_idx/arg->tile_Info.common)*arg->tile_Info.size;
+		int common_idx = (tile_idx%arg->tile_Info.common)*arg->tile_Info.size;
 		/* Allocating A_Matrix's sub matrix */
-		for(int j = 0; j < arg->tile_Info.size; j++){
-			for(int k = 0; k < arg->tile_Info.size; k++){
-				A_sub[(j*arg->tile_Info.size)+k] = 
-						arg->A_Mat[A_row_idx+j][common_idx+k];
+		for(int i = 0; i < arg->tile_Info.size; i++){
+			for(int j = 0; j < arg->tile_Info.size; j++){
+				A_sub[(i*arg->tile_Info.size)+j] = 
+						arg->A_Mat[A_row_idx+i][common_idx+j];
 			}
 		}
-		/* Do MatrixMultiply */
-		for(int j = 0 ; j < arg->tile_Info.columns; j++){
-			int B_col_idx = j*arg->tile_Info.size;
+
+		for(int i = 0 ; i < arg->tile_Info.columns; i++){
+			int B_col_idx = i*arg->tile_Info.size;
 			MatrixMultiply(arg, A_sub, A_row_idx, common_idx, B_col_idx, res_temp);
 		}
 	}
+	pthread_mutex_unlock(&mutex_lock);
 
 	/* free allocated memory */
 	free(A_sub);
 	free(res_temp);
+
 	return NULL;
 }
 
@@ -191,27 +240,19 @@ int main(int argc, char **argv){
 	double excution_time = 0;
 
 	/* Preparation process to divide Matrix into Tiles */
-	TileInfo tile_info;
-	tile_info.size = STANDARD_SIZE;
-	tile_info.rows = res_Info.rows/tile_info.size;
-	tile_info.columns = res_Info.columns/tile_info.size;
-	tile_info.common = A_Info.columns/tile_info.size;
-
-	/* Setting number of tiles for each thread */
-	tile_info.Ntile = tile_info.rows*tile_info.columns;
-	int alloc_tile[Nthread];
-	if((tile_info.Ntile % Nthread) == 0){
-		for(int i = 0; i < Nthread; i++){
-			alloc_tile[i] = tile_info.Ntile/Nthread;
-		}
-	}
-	else{
-		int rest = tile_info.Ntile;
-		for(int i = 0; i < Nthread-1; i++){
-			alloc_tile[i] = tile_info.Ntile/Nthread;
-			rest -= alloc_tile[i];
-		}
-		alloc_tile[Nthread-1] = rest;
+	TileInfo tile_Info;
+	tile_Info.size = ModifyGCD(res_Info.rows, res_Info.columns);
+	tile_Info.rows = res_Info.rows/tile_Info.size;
+	tile_Info.columns = res_Info.columns/tile_Info.size;
+	tile_Info.common = A_Info.columns/tile_Info.size;
+	tile_Info.Ntile = tile_Info.rows*tile_Info.columns;
+printf("tile_size: %d\n", tile_Info.size);
+printf("Nthread: %d\n", Nthread);
+	/* Make queue for scheduling */
+	Queue *queue = (Queue*)malloc(sizeof(Queue));
+	initQueue(queue);
+	for(int i = 0; i < tile_Info.Ntile; i++){
+		enqueue(queue, i);
 	}
 
 	/* Create multi-thread */
@@ -220,15 +261,12 @@ int main(int argc, char **argv){
 	clock_gettime(CLOCK_MONOTONIC, &start);
 	for(int i = 0; i < Nthread; i++){
 		int rc;
-		thr_par[i].tid = i;
-		thr_par[i].start = i*alloc_tile[0];
-		thr_par[i].tile_Info = tile_info;
-		thr_par[i].num_tile = alloc_tile[i];	//number of tiles to be handled in thread
+		thr_par[i].tile_Info = tile_Info;
 		thr_par[i].A_Mat = A_Mat;
 		thr_par[i].B_Mat = B_Mat;
 		thr_par[i].res_Mat = res_Mat;
 		thr_par[i].res_Info = res_Info;
-
+		thr_par[i].queue = queue;
 		if((rc = pthread_create(&(multi_thread[i]), NULL, 
 						ThreadFunc, (void*)(thr_par+i))) != 0){
 			perror("Multi Thread Create Error!");
@@ -250,9 +288,9 @@ int main(int argc, char **argv){
 	printf("Multi-Threading Excution Time: %f\n", excution_time);
 
 	/* Write result-matrix to file */
-	FILE *res_file = fopen("Result", "w");
+	FILE *res_file = fopen("Result_BQueue", "w");
 	if(res_file == NULL){
-		printf("Result file fopen failed!\n");
+		printf("Result_BQueue file fopen failed!\n");
 		exit(1);
 	}
 	for(int i = 0; i < res_Info.rows; i++){
